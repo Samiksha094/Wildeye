@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WildEye AI — Secure Access</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Space+Mono:wght@400;700&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --green:       #00ff88;
+      --green-mid:   #00cc6e;
+      --green-dark:  #007a42;
+      --green-glow:  rgba(0,255,136,0.18);
+      --green-soft:  rgba(0,255,136,0.06);
+      --red:         #ff3b3b;
+      --amber:       #ffaa00;
+      --blue:        #4488ff;
+      --bg:          #020810;
+      --bg-card:     rgba(4,12,28,0.92);
+      --border:      rgba(255,255,255,0.07);
+      --border-g:    rgba(0,255,136,0.22);
+      --text:        #e8f4ff;
+      --text-dim:    rgba(200,220,255,0.42);
+      --text-mid:    rgba(200,220,255,0.7);
+    }
+
+    html, body { height: 100%; background: var(--bg); font-family: 'Rajdhani', sans-serif; overflow: hidden; }
+
+    .bg-base {
+      position: fixed; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 90% 70% at 15% 15%, rgba(0,255,136,0.055) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 90% at 85% 85%, rgba(0,80,200,0.07) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0,20,50,0.85) 0%, transparent 100%),
+        var(--bg);
+    }
+
+    .hex-grid {
+      position: fixed; inset: 0; z-index: 0; opacity: 0.35;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.06) 1px, transparent 1px);
+      background-size: 48px 48px;
+      animation: gridBreath 10s ease-in-out infinite;
+    }
+    @keyframes gridBreath { 0%,100%{opacity:.25} 50%{opacity:.55} }
+
+    .vignette {
+      position: fixed; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse 100% 100% at 50% 50%, transparent 40%, rgba(2,8,16,0.85) 100%);
+    }
+
+    .scan {
+      position: fixed; left: 0; right: 0; height: 1px; z-index: 1;
+      background: linear-gradient(90deg, transparent 0%, rgba(0,255,136,0.5) 30%, rgba(0,255,136,0.8) 50%, rgba(0,255,136,0.5) 70%, transparent 100%);
+      animation: scanMove 8s linear infinite; opacity: 0.25;
+    }
+    @keyframes scanMove { 0%{top:-2px} 100%{top:100vh} }
+
+    .particles { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+    .particle { position: absolute; border-radius: 50%; opacity: 0; animation: floatUp linear infinite; }
+    @keyframes floatUp {
+      0%   { transform: translateY(100vh); opacity:0; }
+      8%   { opacity: 0.7; }
+      92%  { opacity: 0.2; }
+      100% { transform: translateY(-5vh); opacity:0; }
+    }
+
+    /* ── LAYOUT ── */
+    .page {
+      position: relative; z-index: 10;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 460px 1fr;
+      align-items: center;
+    }
+
+    /* ── LEFT — BRAND ── */
+    .brand-panel {
+      padding: 50px 48px;
+      display: flex; flex-direction: column; justify-content: center;
+      animation: slideLeft 0.9s cubic-bezier(.16,1,.3,1) 0.1s both;
+    }
+    @keyframes slideLeft { from{opacity:0;transform:translateX(-50px)} to{opacity:1;transform:translateX(0)} }
+
+    .logo-row { display: flex; align-items: center; gap: 18px; margin-bottom: 10px; }
+    .logo-mark { width: 64px; height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .logo-mark svg { width: 64px; height: 64px; filter: drop-shadow(0 0 16px rgba(0,255,136,0.55)); }
+
+    .brand-name {
+      font-family: 'Orbitron', monospace; font-size: 48px; font-weight: 900;
+      color: #fff; letter-spacing: 3px; line-height: 1;
+      text-shadow: 0 0 50px rgba(0,255,136,0.25);
+    }
+    .brand-name span { color: var(--green); }
+    .brand-tagline { font-size: 12px; color: var(--text-dim); letter-spacing: 4px; text-transform: uppercase; margin-bottom: 44px; padding-left: 2px; }
+
+    .stat-list { display: flex; flex-direction: column; gap: 14px; }
+    .stat-pill {
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(0,255,136,0.03); border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 12px; padding: 12px 18px;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .stat-pill:hover { background: rgba(0,255,136,0.06); border-color: rgba(0,255,136,0.22); }
+    .stat-icon { font-size: 18px; flex-shrink: 0; }
+    .stat-body { display: flex; flex-direction: column; gap: 1px; flex: 1; }
+    .stat-label { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .stat-value { font-size: 14px; color: var(--text); font-weight: 600; letter-spacing: 0.5px; }
+
+    .pdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; animation: blink 2s ease-in-out infinite; }
+    .pdot.g { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .pdot.a { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation-delay: .6s; }
+    .pdot.r { background: var(--red); box-shadow: 0 0 8px var(--red); animation-delay: 1.2s; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── CENTER — LOGIN CARD ── */
+    .card-wrap { padding: 16px 0; animation: riseUp 1s cubic-bezier(.16,1,.3,1) 0.25s both; }
+    @keyframes riseUp { from{opacity:0;transform:translateY(50px)} to{opacity:1;transform:translateY(0)} }
+
+    .login-card {
+      background: var(--bg-card); border: 1px solid var(--border-g); border-radius: 28px;
+      padding: 44px 38px; position: relative;
+      backdrop-filter: blur(40px);
+      box-shadow: 0 0 0 1px rgba(0,255,136,0.04), 0 8px 80px rgba(0,0,0,0.7), 0 0 100px rgba(0,255,136,0.06), inset 0 1px 0 rgba(255,255,255,0.07);
+    }
+    .login-card::before {
+      content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      border-radius: 1px; opacity: 0.7;
+    }
+    .cc { position: absolute; width: 18px; height: 18px; border-color: rgba(0,255,136,0.5); border-style: solid; }
+    .cc.tl { top:-1px; left:-1px; border-width:2px 0 0 2px; border-radius:10px 0 0 0; }
+    .cc.tr { top:-1px; right:-1px; border-width:2px 2px 0 0; border-radius:0 10px 0 0; }
+    .cc.bl { bottom:-1px; left:-1px; border-width:0 0 2px 2px; border-radius:0 0 0 10px; }
+    .cc.br { bottom:-1px; right:-1px; border-width:0 2px 2px 0; border-radius:0 0 10px 0; }
+
+    .card-header { text-align: center; margin-bottom: 28px; }
+    .shield-logo {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 60px; height: 60px; border-radius: 18px;
+      background: linear-gradient(145deg, rgba(0,255,136,0.18), rgba(0,100,60,0.35));
+      border: 1px solid var(--border-g); margin-bottom: 18px;
+      box-shadow: 0 0 40px rgba(0,255,136,0.18), inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    .shield-logo svg { width: 30px; height: 30px; }
+    .card-title { font-family: 'Orbitron', monospace; font-size: 19px; font-weight: 700; color: #fff; letter-spacing: 2.5px; margin-bottom: 5px; }
+    .card-sub { font-size: 12px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 9px;
+      background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.14);
+      border-radius: 100px; padding: 7px 14px; margin-bottom: 28px;
+      width: fit-content; margin-left: auto; margin-right: auto;
+    }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: blink 1.8s ease-in-out infinite; }
+    .status-txt { font-size: 10px; color: rgba(0,255,136,0.65); letter-spacing: 2px; text-transform: uppercase; font-family: 'Space Mono', monospace; }
+
+    .error-flash {
+      background: rgba(255,59,59,0.08); border: 1px solid rgba(255,59,59,0.25);
+      border-radius: 12px; padding: 11px 16px; margin-bottom: 18px;
+      display: flex; align-items: center; gap: 10px;
+      animation: shake 0.4s ease;
+    }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+    .err-icon { color: var(--red); font-size: 15px; }
+    .err-msg { color: rgba(255,100,100,0.85); font-size: 13px; letter-spacing: 0.5px; }
+
+    .field { margin-bottom: 18px; }
+    .field-label { display: block; font-size: 10px; color: var(--text-dim); letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 8px; font-family: 'Space Mono', monospace; }
+    .input-wrap { position: relative; }
+    .f-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: rgba(0,255,136,0.35); font-size: 15px; pointer-events: none; transition: color 0.3s; }
+    .f-input {
+      width: 100%; padding: 13px 14px 13px 44px;
+      background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 12px; color: var(--text); font-family: 'Rajdhani', sans-serif;
+      font-size: 15px; font-weight: 500; letter-spacing: 0.5px; outline: none;
+      transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
+    }
+    .f-input::placeholder { color: rgba(255,255,255,0.18); }
+    .f-input:focus { border-color: rgba(0,255,136,0.38); background: rgba(0,255,136,0.035); box-shadow: 0 0 0 3px rgba(0,255,136,0.06); }
+    .eye-btn { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.2); transition: color 0.2s; padding: 4px; }
+    .eye-btn:hover { color: var(--green); }
+    .f-err { font-size: 11px; color: var(--red); margin-top: 5px; display: none; letter-spacing: 0.5px; }
+    .f-err.show { display: block; }
+
+    .form-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
+    .remember { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .remember input[type="checkbox"] { display: none; }
+    .chk { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+    .remember input:checked ~ .chk { background: rgba(0,255,136,0.18); border-color: var(--green); }
+    .remember input:checked ~ .chk::after { content:'✓'; color:var(--green); font-size:10px; font-weight:700; }
+    .rem-txt { font-size: 12px; color: var(--text-dim); }
+    .forgot { font-size: 12px; color: rgba(0,255,136,0.55); text-decoration: none; transition: color 0.2s; }
+    .forgot:hover { color: var(--green); }
+
+    .btn-login {
+      width: 100%; padding: 15px; border: none; border-radius: 14px;
+      background: linear-gradient(135deg, #00e07a 0%, #00a857 50%, #006f3a 100%);
+      color: #fff; font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700;
+      letter-spacing: 3px; cursor: pointer; position: relative; overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.3s;
+      box-shadow: 0 4px 28px rgba(0,180,90,0.4), 0 0 0 1px rgba(0,255,136,0.2);
+    }
+    .btn-login::after { content:''; position:absolute; inset:0; background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 60%); opacity:0; transition:opacity 0.3s; }
+    .btn-login:hover { transform:translateY(-2px); box-shadow:0 8px 36px rgba(0,200,100,0.55), 0 0 0 1px rgba(0,255,136,0.3); }
+    .btn-login:hover::after { opacity:1; }
+    .btn-login:active { transform:translateY(0) scale(0.99); }
+    .btn-text { position: relative; z-index: 1; }
+    .btn-spin { display:none; width:17px; height:17px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; margin:0 auto; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .btn-login.loading .btn-text { display:none; }
+    .btn-login.loading .btn-spin { display:block; }
+
+    .card-foot { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .foot-ver { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; font-family: 'Space Mono', monospace; }
+    .foot-badge { font-size: 10px; padding: 3px 10px; border-radius: 20px; background: rgba(0,255,136,0.07); border: 1px solid rgba(0,255,136,0.15); color: rgba(0,255,136,0.55); letter-spacing: 1px; text-transform: uppercase; }
+
+    /* ══════════════════════════════════════
+       RIGHT — THREAT INTELLIGENCE PANEL
+    ══════════════════════════════════════ */
+    .threat-panel {
+      padding: 50px 40px 50px 24px;
+      animation: slideRight 0.9s cubic-bezier(.16,1,.3,1) 0.35s both;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    @keyframes slideRight { from{opacity:0;transform:translateX(50px)} to{opacity:1;transform:translateX(0)} }
+
+    .panel-label {
+      font-size: 10px; color: var(--text-dim); letter-spacing: 3px; text-transform: uppercase;
+      font-family: 'Space Mono', monospace; display: flex; align-items: center; gap: 8px;
+    }
+    .panel-label::before { content: ''; display: inline-block; width: 20px; height: 1px; background: var(--green); opacity: 0.5; }
+
+    /* Radar animation box */
+    .radar-box {
+      width: 100%; height: 200px;
+      border: 1px solid var(--border-g); border-radius: 16px;
+      background: rgba(0,20,10,0.6);
+      display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.5), inset 0 0 60px rgba(0,255,136,0.03);
+    }
+    .radar-svg { width: 170px; height: 170px; }
+    .radar-sweep {
+      transform-origin: 85px 85px;
+      animation: sweep 3s linear infinite;
+    }
+    @keyframes sweep { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+    /* blips */
+    .blip {
+      position: absolute; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 8px var(--green);
+      animation: blipFade 3s ease-in-out infinite;
+    }
+    @keyframes blipFade { 0%,100%{opacity:0} 40%,60%{opacity:1} }
+    .blip1 { top: 38%; left: 55%; animation-delay: 0.8s; }
+    .blip2 { top: 62%; left: 30%; animation-delay: 1.9s; }
+    .blip3 { top: 25%; left: 42%; animation-delay: 2.5s; width:4px; height:4px; background:var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+    .radar-label {
+      position: absolute; top: 10px; left: 14px;
+      font-size: 9px; color: rgba(0,255,136,0.4); letter-spacing: 2px;
+      font-family: 'Space Mono', monospace; text-transform: uppercase;
+    }
+    .radar-hz {
+      position: absolute; bottom: 10px; right: 14px;
+      font-size: 9px; color: rgba(0,255,136,0.3); letter-spacing: 1.5px;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* AI Class confidence bars */
+    .class-panel {
+      background: rgba(0,255,136,0.03); border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 14px; padding: 16px 18px;
+    }
+    .class-title { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; font-family: 'Space Mono', monospace; margin-bottom: 14px; }
+    .class-row { margin-bottom: 11px; }
+    .class-row:last-child { margin-bottom: 0; }
+    .class-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .class-name { font-size: 12px; color: var(--text); font-weight: 600; letter-spacing: 0.5px; }
+    .class-pct { font-size: 11px; font-family: 'Space Mono', monospace; }
+    .bar-track { height: 5px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 100px; animation: barGrow 1.5s cubic-bezier(.16,1,.3,1) forwards; }
+    @keyframes barGrow { from{width:0} }
+    .bar-poacher { background: linear-gradient(90deg, #ff3b3b, #ff6b3b); width: 88%; }
+    .bar-weapon  { background: linear-gradient(90deg, #ffaa00, #ffcc44); width: 76%; }
+    .bar-animal  { background: linear-gradient(90deg, #00ff88, #00cc6e); width: 94%; }
+
+    /* system check rows */
+    .sys-checks { display: flex; flex-direction: column; gap: 6px; }
+    .sys-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid transparent; transition: border-color 0.3s; }
+    .sys-row:hover { border-color: rgba(0,255,136,0.12); }
+    .sys-k { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+    .sys-icon { font-size: 12px; }
+    .sys-v { font-size: 11px; font-family: 'Space Mono', monospace; }
+    .ok  { color: var(--green); }
+    .wrn { color: var(--amber); }
+    .inf { color: var(--blue); }
+
+    /* uptime bar */
+    .uptime-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(0,255,136,0.04); border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 12px; padding: 11px 16px;
+    }
+    .uptime-left { display: flex; flex-direction: column; gap: 2px; }
+    .uptime-key { font-size: 9px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; font-family: 'Space Mono', monospace; }
+    .uptime-val { font-size: 18px; color: var(--green); font-family: 'Space Mono', monospace; font-weight: 700; letter-spacing: 2px; }
+    .uptime-badge { font-size: 9px; padding: 3px 10px; border-radius: 20px; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); color: var(--green); letter-spacing: 1.5px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<div class="bg-base"></div>
+<div class="hex-grid"></div>
+<div class="vignette"></div>
+<div class="scan"></div>
+<div class="particles" id="particles"></div>
+
+<div class="page">
+
+  <!-- ═══ LEFT — BRAND ═══ -->
+  <div class="brand-panel">
+    <div class="logo-row">
+      <div class="logo-mark">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="30" stroke="#00ff88" stroke-width="0.8" stroke-dasharray="5 5" opacity="0.3"/>
+          <path d="M4 32 Q18 12 32 12 Q46 12 60 32 Q46 52 32 52 Q18 52 4 32 Z" stroke="#00ff88" stroke-width="1.5" fill="rgba(0,255,136,0.07)" opacity="0.8"/>
+          <ellipse cx="32" cy="32" rx="14" ry="14" stroke="#00ff88" stroke-width="1" opacity="0.4" fill="none"/>
+          <circle cx="32" cy="32" r="10" fill="rgba(0,255,136,0.15)" stroke="#00ff88" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="4.5" fill="#00ff88" opacity="0.95"/>
+          <circle cx="34.5" cy="29.5" r="1.8" fill="rgba(255,255,255,0.7)"/>
+          <line x1="2" y1="32" x2="14" y2="32" stroke="#00ff88" stroke-width="1" opacity="0.5"/>
+          <line x1="50" y1="32" x2="62" y2="32" stroke="#00ff88" stroke-width="1" opacity="0.5"/>
+          <line x1="32" y1="2" x2="32" y2="8" stroke="#00ff88" stroke-width="1" opacity="0.4"/>
+          <line x1="32" y1="56" x2="32" y2="62" stroke="#00ff88" stroke-width="1" opacity="0.4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">WILD<span>EYE</span></div>
+      </div>
+    </div>
+
+    <div class="brand-tagline">AI Wildlife Protection System · v2.0</div>
+
+    <div class="stat-list">
+      <div class="stat-pill">
+        <span class="stat-icon">🎯</span>
+        <div class="stat-body">
+          <div class="stat-label">AI Detection</div>
+          <div class="stat-value">Poacher · Weapon · Animal</div>
+        </div>
+        <div class="pdot g"></div>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-icon">📍</span>
+        <div class="stat-body">
+          <div class="stat-label">Live GPS Tracking</div>
+          <div class="stat-value">Real-time location lock</div>
+        </div>
+        <div class="pdot a"></div>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-icon">🚨</span>
+        <div class="stat-body">
+          <div class="stat-label">Instant Alerts</div>
+          <div class="stat-value">Email notification dispatch</div>
+        </div>
+        <div class="pdot r"></div>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-icon">🌙</span>
+        <div class="stat-body">
+          <div class="stat-label">Night Mode</div>
+          <div class="stat-value">Thermal spectral imaging</div>
+        </div>
+        <div class="pdot g"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CENTER — LOGIN ═══ -->
+  <div class="card-wrap">
+    <div class="login-card">
+      <div class="cc tl"></div><div class="cc tr"></div>
+      <div class="cc bl"></div><div class="cc br"></div>
+
+      <div class="card-header">
+        <div class="shield-logo">
+          <svg viewBox="0 0 30 30" fill="none">
+            <path d="M15 2L27 8V18C27 23 21 27.5 15 29C9 27.5 3 23 3 18V8L15 2Z"
+                  stroke="#00ff88" stroke-width="1.5" fill="rgba(0,255,136,0.1)"/>
+            <circle cx="15" cy="15" r="4.5" fill="#00ff88" opacity="0.9"/>
+            <circle cx="16.8" cy="13.2" r="1.5" fill="rgba(255,255,255,0.6)"/>
+          </svg>
+        </div>
+        <div class="card-title">SECURE ACCESS</div>
+        <div class="card-sub">Authorized personnel only</div>
+      </div>
+
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        <div class="status-txt">All systems nominal</div>
+      </div>
+
+      {% if error %}
+      <div class="error-flash">
+        <div class="err-icon">⚠</div>
+        <div class="err-msg">{{ error }}</div>
+      </div>
+      {% endif %}
+
+      <form method="POST" action="/" id="loginForm" novalidate>
+        <div class="field">
+          <label class="field-label" for="username">Ranger ID / Username</label>
+          <div class="input-wrap">
+            <input class="f-input" type="text" id="username" name="username"
+                   placeholder="Enter your ID" autocomplete="username" required/>
+            <span class="f-icon">◈</span>
+          </div>
+          <div class="f-err" id="uErr">Username is required</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="password">Access Code</label>
+          <div class="input-wrap">
+            <input class="f-input" type="password" id="password" name="password"
+                   placeholder="Enter access code" autocomplete="current-password" required/>
+            <span class="f-icon">◉</span>
+            <button type="button" class="eye-btn" id="eyeBtn" aria-label="Toggle visibility">
+              <svg id="eyeIco" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <div class="f-err" id="pErr">Password is required</div>
+        </div>
+
+        <div class="form-row">
+          <label class="remember">
+            <input type="checkbox" name="remember" id="remember"/>
+            <div class="chk"></div>
+            <span class="rem-txt">Keep me signed in</span>
+          </label>
+          <a href="#" class="forgot">Forgot code?</a>
+        </div>
+
+        <button type="submit" class="btn-login" id="loginBtn">
+          <span class="btn-text">INITIALIZE ACCESS</span>
+          <div class="btn-spin"></div>
+        </button>
+      </form>
+
+      <div class="card-foot">
+        <div class="foot-ver">WildEye AI · v2.0</div>
+        <div class="foot-badge">🔒 256-bit AES</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ RIGHT — THREAT INTELLIGENCE PANEL ═══ -->
+  <div class="threat-panel">
+    <div class="panel-label">Threat Intelligence</div>
+
+    <!-- Radar -->
+    <div class="radar-box">
+      <div class="radar-label">SCAN ACTIVE</div>
+      <div class="radar-hz">3.2 Hz</div>
+      <div class="blip blip1"></div>
+      <div class="blip blip2"></div>
+      <div class="blip blip3"></div>
+      <svg class="radar-svg" viewBox="0 0 170 170" fill="none">
+        <!-- rings -->
+        <circle cx="85" cy="85" r="80" stroke="rgba(0,255,136,0.12)" stroke-width="1"/>
+        <circle cx="85" cy="85" r="55" stroke="rgba(0,255,136,0.10)" stroke-width="1"/>
+        <circle cx="85" cy="85" r="30" stroke="rgba(0,255,136,0.10)" stroke-width="1"/>
+        <!-- crosshairs -->
+        <line x1="85" y1="5" x2="85" y2="165" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <line x1="5" y1="85" x2="165" y2="85" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <!-- diagonal ticks -->
+        <line x1="28" y1="28" x2="38" y2="38" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <line x1="142" y1="28" x2="132" y2="38" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <line x1="28" y1="142" x2="38" y2="132" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <line x1="142" y1="142" x2="132" y2="132" stroke="rgba(0,255,136,0.08)" stroke-width="1"/>
+        <!-- sweep -->
+        <g class="radar-sweep">
+          <path d="M85 85 L85 5 A80 80 0 0 1 162 118 Z" fill="url(#sweepGrad)" opacity="0.6"/>
+        </g>
+        <!-- center dot -->
+        <circle cx="85" cy="85" r="4" fill="#00ff88" opacity="0.9"/>
+        <circle cx="85" cy="85" r="8" stroke="#00ff88" stroke-width="0.5" opacity="0.3"/>
+        <defs>
+          <radialGradient id="sweepGrad" cx="85" cy="85" r="80" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00ff88" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#00ff88" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- AI Model Confidence -->
+    <div class="class-panel">
+      <div class="class-title">Model Class Accuracy</div>
+      <div class="class-row">
+        <div class="class-meta">
+          <span class="class-name">🔴 Poacher Detection</span>
+          <span class="class-pct" style="color:var(--red)">88%</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill bar-poacher"></div></div>
+      </div>
+      <div class="class-row">
+        <div class="class-meta">
+          <span class="class-name">🟠 Weapon Detection</span>
+          <span class="class-pct" style="color:var(--amber)">76%</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill bar-weapon"></div></div>
+      </div>
+      <div class="class-row">
+        <div class="class-meta">
+          <span class="class-name">🟢 Animal Detection</span>
+          <span class="class-pct" style="color:var(--green)">94%</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill bar-animal"></div></div>
+      </div>
+    </div>
+
+    <!-- System health checks -->
+    <div class="sys-checks">
+      <div class="sys-row">
+        <div class="sys-k"><span class="sys-icon">🧠</span> AI Model (YOLOv8)</div>
+        <div class="sys-v ok">LOADED</div>
+      </div>
+      <div class="sys-row">
+        <div class="sys-k"><span class="sys-icon">📡</span> Alert System</div>
+        <div class="sys-v ok">ONLINE</div>
+      </div>
+      <div class="sys-row">
+        <div class="sys-k"><span class="sys-icon">🌙</span> Night Mode Engine</div>
+        <div class="sys-v ok">READY</div>
+      </div>
+      <div class="sys-row">
+        <div class="sys-k"><span class="sys-icon">🗺️</span> GPS Module</div>
+        <div class="sys-v wrn">STANDBY</div>
+      </div>
+      <div class="sys-row">
+        <div class="sys-k"><span class="sys-icon">📋</span> Threat Classes</div>
+        <div class="sys-v inf">3 ACTIVE</div>
+      </div>
+    </div>
+
+    <!-- Uptime -->
+    <div class="uptime-row">
+      <div class="uptime-left">
+        <div class="uptime-key">System Uptime</div>
+        <div class="uptime-val" id="uptime">00:00:00</div>
+      </div>
+      <div class="uptime-badge">● Live</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Particles
+const pc = document.getElementById('particles');
+for (let i = 0; i < 35; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  const sz = Math.random() * 2.5 + 0.8;
+  p.style.cssText = `left:${Math.random()*100}%;width:${sz}px;height:${sz}px;background:${Math.random()>.5?'#00ff88':'rgba(68,136,255,0.8)'};animation-duration:${Math.random()*18+10}s;animation-delay:${Math.random()*12}s;`;
+  pc.appendChild(p);
+}
+
+// Uptime
+let sec = 0;
+setInterval(() => {
+  sec++;
+  const h = String(Math.floor(sec/3600)).padStart(2,'0');
+  const m = String(Math.floor((sec%3600)/60)).padStart(2,'0');
+  const s = String(sec%60).padStart(2,'0');
+  document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
+}, 1000);
+
+// Password toggle
+const passEl = document.getElementById('password');
+document.getElementById('eyeBtn').addEventListener('click', () => {
+  const show = passEl.type === 'password';
+  passEl.type = show ? 'text' : 'password';
+  document.getElementById('eyeIco').innerHTML = show
+    ? '<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/>'
+    : '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+});
+
+// Form validation
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value.trim();
+  const uErr = document.getElementById('uErr'), pErr = document.getElementById('pErr');
+  let ok = true;
+  uErr.classList.remove('show'); pErr.classList.remove('show');
+  if (!u) { uErr.textContent='Username is required'; uErr.classList.add('show'); ok=false; }
+  if (!p) { pErr.textContent='Password is required'; pErr.classList.add('show'); ok=false; }
+  if (!ok) { e.preventDefault(); return; }
+  const btn = document.getElementById('loginBtn');
+  btn.classList.add('loading'); btn.disabled = true;
+});
+</script>
+</body>
+</html>

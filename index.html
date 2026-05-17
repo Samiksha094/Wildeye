@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WildEye AI - Control Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --green: #00ff88; --green-dark: #00c96b; --red: #ff4d4d; --orange: #ffb347;
+    --bg-dark: #020812; --sidebar-bg: #050f21; --card-bg: rgba(255,255,255,0.03);
+    --border-color: rgba(0,255,136,0.12); --text-primary: #eaf6ff; --text-dim: rgba(234,246,255,0.6);
+}
+body { background-color: var(--bg-dark); color: var(--text-primary); font-family: 'Rajdhani', sans-serif; display: flex; min-height: 100vh; overflow-x: hidden; }
+.sidebar { width: 260px; background-color: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 30px 20px; }
+.brand { font-family: 'Orbitron', sans-serif; font-size: 24px; font-weight: 900; letter-spacing: 2px; margin-bottom: 40px; }
+.brand span { color: var(--green); }
+.nav-group { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.nav-link { display: flex; align-items: center; padding: 14px 18px; color: var(--text-dim); text-decoration: none; font-weight: 600; font-size: 16px; border-radius: 10px; transition: 0.2s; letter-spacing: 1px; }
+.nav-link:hover, .nav-link.active { background-color: rgba(0,255,136,0.08); color: var(--green); border-left: 3px solid var(--green); }
+.logout-btn { padding: 12px; text-align: center; background: rgba(255,77,77,0.1); color: var(--red); border: 1px solid rgba(255,77,77,0.2); border-radius: 8px; text-decoration: none; font-family: 'Orbitron', sans-serif; font-size: 11px; letter-spacing: 1px; }
+.logout-btn:hover { background: var(--red); color: white; }
+
+.main-content { flex: 1; padding: 40px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+.panel-title { font-family: 'Orbitron', sans-serif; font-size: 22px; letter-spacing: 2px; margin-bottom: 25px; color: var(--green); text-align: center; width: 100%; max-width: 1200px; }
+.card-base { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 18px; padding: 30px; backdrop-filter: blur(10px); width: 100%; }
+
+.narrow-panel-container { width: 100%; max-width: 680px; margin: 0 auto 25px auto; }
+.upload-form { display: flex; flex-direction: row; gap: 12px; margin-top: 15px; align-items: center; width: 100%; }
+.file-input-wrapper { flex: 1; }
+input[type="file"] { padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; width: 100%; height: 44px; }
+
+.grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin: 10px 0 30px 0; width: 100%; max-width: 1200px; }
+.metric-card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 22px; border-radius: 16px; text-align: center; }
+.metric-val { font-family: 'Orbitron', sans-serif; font-size: 32px; font-weight: 700; color: var(--green); margin-top: 5px; }
+
+.media-container { width: 100%; max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+.img-frame { width: 100%; height: 440px; display: block; border-radius: 12px; border: 2px solid rgba(0,255,136,0.2); object-fit: contain; background: #01040a; }
+
+/* LENS SELECTOR */
+.lens-selector-wrapper { width: 100%; }
+.filter-dropdown {
+    width: 100%; padding: 10px 14px; background: rgba(0,255,136,0.06);
+    border: 1px solid rgba(0,255,136,0.25); color: var(--green);
+    font-family: 'Orbitron', sans-serif; font-size: 12px; letter-spacing: 1px;
+    border-radius: 8px; cursor: pointer; outline: none;
+}
+.filter-dropdown option { background: #050f21; color: var(--text-primary); }
+
+/* GPS STATUS BAR */
+.gps-status-bar {
+    width: 100%; max-width: 1200px;
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.15);
+    border-radius: 10px; padding: 10px 18px; margin-bottom: 16px;
+    font-size: 13px; font-family: 'Rajdhani', sans-serif; letter-spacing: 0.5px;
+}
+.gps-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex-shrink: 0; transition: background 0.4s; }
+.gps-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-dot 1.4s infinite; }
+.gps-dot.searching { background: var(--orange); animation: pulse-dot 0.8s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+.gps-coords { color: var(--green); font-weight: 600; font-family: 'Orbitron', sans-serif; font-size: 11px; }
+.gps-accuracy { color: var(--text-dim); font-size: 12px; }
+
+.table-wrapper-card { width: 100%; max-width: 1200px; }
+.log-table { width: 100%; border-collapse: collapse; margin-top: 15px; text-align: left; }
+.log-table th, .log-table td { padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 15px; }
+.log-table th { font-family: 'Orbitron', sans-serif; font-size: 12px; color: var(--green); text-transform: uppercase; letter-spacing: 1px; }
+
+/* MAP */
+.map-outer-wrapper { width: 100%; max-width: 1200px; }
+#liveGpsMap { width: 100%; height: 520px; border-radius: 12px; border: 2px solid rgba(0,255,136,0.2); margin-top: 10px; position: relative; }
+
+/* ACCURACY RING ON MAP */
+.leaflet-accuracy-circle { pointer-events: none; }
+
+/* REPORTS */
+.official-report-container {
+    background: #ffffff; color: #111111; padding: 60px 50px;
+    width: 100%; max-width: 900px; margin: 20px auto; border: 2px solid #000000;
+    font-family: 'Times New Roman', Times, serif; line-height: 1.5; text-align: left;
+}
+.report-header-stack { text-align: center; border-bottom: 3px double #000000; padding-bottom: 20px; margin-bottom: 25px; width: 100%; }
+.emblem-top { height: 110px; width: auto; display: block; margin: 0 auto 15px auto; object-fit: contain; }
+.report-title-main { font-size: 22px; font-weight: bold; color: #000000; text-align: center; }
+.report-subtitle-sub { font-size: 13px; text-transform: uppercase; font-weight: bold; margin-top: 8px; color: #444444; text-align: center; }
+.section-heading-legal { font-size: 14px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #111111; padding-bottom: 3px; margin-bottom: 15px; margin-top: 25px; color: #000000; }
+.meta-table-legal { width: 100%; margin-bottom: 30px; border: 1px solid #cccccc; border-collapse: collapse; }
+.meta-table-legal td { padding: 10px; border: 1px solid #cccccc; font-size: 14px; color: #111111; }
+.summary-box-grid-legal { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 35px; }
+.summary-box-legal { border: 1px solid #222222; padding: 15px; text-align: center; background: #fafafa; }
+.summary-title-legal { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #555555; }
+.summary-count-legal { font-size: 24px; font-weight: bold; margin-top: 5px; color: #111111; }
+.official-table-legal { width: 100%; margin-bottom: 40px; border: 1px solid #cccccc; border-collapse: collapse; }
+.official-table-legal th { background: #111111; color: #ffffff; padding: 10px; font-size: 12px; text-transform: uppercase; border: 1px solid #111111; }
+.official-table-legal td { padding: 10px; border: 1px solid #cccccc; font-size: 13px; color: #111111; }
+.signature-line-legal { border-top: 1px solid #111111; width: 220px; text-align: center; padding-top: 5px; font-size: 13px; font-weight: bold; margin-top: 45px; }
+
+.print-btn { background: var(--green); color: #020812; border: none; padding: 12px 24px; border-radius: 8px; font-family: 'Orbitron', sans-serif; font-weight: bold; cursor: pointer; height: 44px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+.print-btn:hover { background: var(--green-dark); }
+
+@media print {
+    .sidebar, .print-btn, .panel-title, .grid-layout, .card-base, .narrow-panel-container { display: none !important; }
+    .main-content { padding: 0 !important; align-items: center; }
+    .official-report-container { border: none !important; box-shadow: none !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="brand">WILD<span>EYE</span> AI</div>
+    <div class="nav-group">
+        <a href="/home" class="nav-link {% if not view_tab %}active{% endif %}">🖥️ Dashboard</a>
+        <a href="/live-camera" class="nav-link {% if view_tab == 'live_camera' %}active{% endif %}">📹 Live Camera</a>
+        <a href="/history" class="nav-link {% if view_tab == 'history' %}active{% endif %}">📑 Detection Log</a>
+        <a href="/threat-map" class="nav-link {% if view_tab == 'map' %}active{% endif %}">🗺️ Threat Map</a>
+        <a href="/reports" class="nav-link {% if view_tab == 'reports' %}active{% endif %}">📝 Reports</a>
+    </div>
+    <a href="/logout" class="logout-btn">LOGOUT SESSION</a>
+</div>
+
+<div class="main-content">
+
+    {% if not view_tab %}
+    <!-- ========== DASHBOARD ========== -->
+    <div class="panel-title">MAIN CONTROL RADAR</div>
+
+    <div class="narrow-panel-container">
+        <div class="card-base">
+            <div style="font-size: 14px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase;">Upload Telemetry Feed</div>
+            <form action="/predict" method="post" enctype="multipart/form-data" class="upload-form">
+                <div class="file-input-wrapper">
+                    <input type="file" name="file" accept="image/*" required>
+                </div>
+                <button type="submit" class="print-btn">RUN DATA SCAN</button>
+            </form>
+            {% if threat_level %}
+            <div style="margin-top:15px; border:2px solid {{threat_color}}; color:{{threat_color}}; padding:12px; text-align:center; font-weight:bold; font-family:'Orbitron'; font-size:14px; border-radius:8px; text-transform:uppercase; letter-spacing:1px;">
+                Threat Detected: {{threat_level}}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid-layout">
+        <div class="metric-card"><div>POACHER IDENTITY</div><div class="metric-val" style="color:var(--red)">{{poacher}}%</div></div>
+        <div class="metric-card"><div>WEAPON PROFILING</div><div class="metric-val" style="color:var(--orange)">{{weapon}}%</div></div>
+        <div class="metric-card"><div>ANIMAL CLASSIFICATION</div><div class="metric-val">{{animal}}%</div></div>
+        <div class="metric-card"><div>EMAIL ALERT SYSTEM</div><div class="metric-val" style="color:#00b3ff; font-size:22px; margin-top:8px;">{{mail_sent}}</div></div>
+    </div>
+    {% if output_image %}
+    <div class="media-container">
+        <img src="{{url_for('static', filename=output_image)}}" class="img-frame">
+    </div>
+    {% endif %}
+
+
+    {% elif view_tab == 'live_camera' %}
+    <!-- ========== LIVE CAMERA ========== -->
+    <div class="panel-title">REAL-TIME HARDWARE INTERCEPT LAYER</div>
+    <div class="media-container">
+        <div class="lens-selector-wrapper">
+            <select id="cameraLensMode" onchange="switchCameraLens()" class="filter-dropdown">
+                <option value="normal">STANDARD OPTICAL RADAR FEED</option>
+                <option value="night">🌟 THERMAL SPECTRAL LENS (NIGHT MODE)</option>
+            </select>
+        </div>
+        <img src="{{url_for('live_feed', mode='normal')}}" id="liveCameraStreamCanvas" class="img-frame">
+    </div>
+
+
+    {% elif view_tab == 'history' %}
+    <!-- ========== HISTORY ========== -->
+    <div class="panel-title">SCAN HISTORICAL EVENT LOG REGISTRY</div>
+    <div class="table-wrapper-card">
+        <div class="card-base">
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th><th>Threat Status Level</th>
+                        <th>Poacher %</th><th>Weapon %</th><th>Animal %</th><th>Alerts</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in history %}
+                    <tr>
+                        <td>{{row.time}}</td>
+                        <td style="font-weight:bold; color:{{row.color}};">{{row.threat}}</td>
+                        <td style="color:var(--red);">{{row.poacher}}%</td>
+                        <td style="color:var(--orange);">{{row.weapon}}%</td>
+                        <td>{{row.animal}}%</td>
+                        <td style="color:#00b3ff;">{{row.mail}}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align:center; color:var(--text-dim); padding:30px 0;">
+                            No diagnostic logs found inside this running monitoring session.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+
+    {% elif view_tab == 'map' %}
+    <!-- ========== THREAT MAP ========== -->
+    <div class="panel-title">ACTIVE SATELLITE AREA GEOSPATIAL VECTOR MAP</div>
+
+    <!-- GPS STATUS BAR -->
+    <div class="gps-status-bar">
+        <div class="gps-dot searching" id="gpsDot"></div>
+        <span id="gpsStatusText" style="color:var(--text-dim);">Acquiring GPS signal...</span>
+        <span class="gps-coords" id="gpsCoordsDisplay"></span>
+        <span class="gps-accuracy" id="gpsAccuracyDisplay"></span>
+    </div>
+
+    <div class="map-outer-wrapper">
+        <div id="liveGpsMap"></div>
+    </div>
+
+
+    {% elif view_tab == 'reports' %}
+    <!-- ========== REPORTS ========== -->
+    <div style="text-align:right; width:100%; max-width:900px; margin:0 auto 10px auto;">
+        <button class="print-btn" onclick="window.print()">🖨️ EXPORT OFFICIAL BRIEFING</button>
+    </div>
+
+    <div class="official-report-container">
+        <div class="report-header-stack">
+            <img src="{{ url_for('static', filename='india_emblem.png') }}" class="emblem-top" alt="National Emblem of India">
+            <div class="report-title-main">WILDLIFE SECURITY & ANTI-POACHING INTELLIGENCE REPORT</div>
+            <div class="report-subtitle-sub">CONFIDENTIAL operational dispatch briefing // FOR OFFICIAL USE ONLY</div>
+        </div>
+
+        <div class="section-heading-legal">1. Document Metadata & Issuing Context</div>
+        <table class="meta-table-legal">
+            <tr>
+                <td style="background:#f2f2f2; font-weight:bold; width:20%;">Reporting Unit:</td>
+                <td>WildEye AI Operational Core Module V2.0</td>
+                <td style="background:#f2f2f2; font-weight:bold; width:20%;">Timestamp Mark:</td>
+                <td>{{summary.generated_at}}</td>
+            </tr>
+            <tr>
+                <td style="background:#f2f2f2; font-weight:bold;">Sensor Status:</td>
+                <td style="color:green; font-weight:bold;">ACTIVE MONITORING STATUS</td>
+                <td style="background:#f2f2f2; font-weight:bold;">Classification:</td>
+                <td style="color:red; font-weight:bold;">RESTRICTED BRIEFING</td>
+            </tr>
+        </table>
+
+        <div class="section-heading-legal">2. Executive Summary Metrics</div>
+        <div class="summary-box-grid-legal">
+            <div class="summary-box-legal">
+                <div class="summary-title-legal">Surveillance Scans</div>
+                <div class="summary-count-legal">{{summary.total_scans}}</div>
+            </div>
+            <div class="summary-box-legal" style="background:#fff5f5; border-color:#ff4d4d;">
+                <div class="summary-title-legal" style="color:#b00020;">Critical Breaches</div>
+                <div class="summary-count-legal" style="color:#b00020;">{{summary.critical_threats}}</div>
+            </div>
+            <div class="summary-box-legal">
+                <div class="summary-title-legal" style="color:#006633;">Fauna Observed</div>
+                <div class="summary-count-legal" style="color:#006633;">{{summary.animals_monitored}}</div>
+            </div>
+            <div class="summary-box-legal">
+                <div class="summary-title-legal" style="color:#005580;">Alerts Dispatched</div>
+                <div class="summary-count-legal" style="color:#005580;">{{summary.alerts_dispatched}}</div>
+            </div>
+        </div>
+
+        <div class="section-heading-legal">3. Chronological Activity Log Sheet</div>
+        <table class="official-table-legal">
+            <thead>
+                <tr><th>Time Stamp</th><th>Assessed Severity</th><th>Poacher</th><th>Weapon</th><th>Animal</th></tr>
+            </thead>
+            <tbody>
+                {% for row in history %}
+                <tr>
+                    <td>{{row.time}}</td>
+                    <td style="font-weight:bold;">{{row.threat}} {% if row.mail == 'Yes' %}(EMERGENCY DISPATCH){% endif %}</td>
+                    <td>{{row.poacher}}%</td>
+                    <td>{{row.weapon}}%</td>
+                    <td>{{row.animal}}%</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align:center; color:#555; padding:25px 0; font-style:italic;">
+                        No operational logs compiled inside this monitoring window.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="section-heading-legal">4. Reviewing Officer Sign-Off & Verification</div>
+        <div style="font-size:13px; text-align:justify; font-style:italic; color:#333333;">
+            By signing below, the reviewing officer verifies that the intelligence records above have been cross-checked against valid telemetry arrays and are prepared for formal submission to forestry, state ranger corps, and regional law enforcement authorities.
+        </div>
+        <div style="margin-top:60px; display:flex; justify-content:space-between;">
+            <div class="signature-line-legal">Reviewing Officer Signature</div>
+            <div class="signature-line-legal" style="width:150px;">Date of Review</div>
+        </div>
+    </div>
+    {% endif %}
+
+</div><!-- end .main-content -->
+
+<script>
+// ============================================================
+//  LIVE CAMERA — LENS SWITCHER
+// ============================================================
+function switchCameraLens() {
+    var mode = document.getElementById("cameraLensMode").value;
+    var canvas = document.getElementById("liveCameraStreamCanvas");
+    if (canvas) {
+        canvas.src = "/live-feed?mode=" + mode + "&t=" + Date.now();
+    }
+}
+
+// ============================================================
+//  THREAT MAP — FAST LIVE GPS ENGINE
+// ============================================================
+{% if view_tab == 'map' %}
+document.addEventListener("DOMContentLoaded", function () {
+
+    var initLat = {{ lat|default(12.3336) }};
+    var initLng = {{ lng|default(76.6334) }};
+    var initColor = "{{ threat_color|default('gray') }}";
+    if (initColor === "gray") initColor = "#00ff88";
+
+    // --- Build Map ---
+    var map = L.map('liveGpsMap', { zoomControl: true, attributionControl: true });
+    map.setView([initLat, initLng], 17);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxZoom: 19
+    }).addTo(map);
+
+    // Pulsing circle marker (main position)
+    var markerCircle = L.circleMarker([initLat, initLng], {
+        color: initColor,
+        fillColor: initColor,
+        fillOpacity: 0.75,
+        radius: 12,
+        weight: 3
+    }).addTo(map);
+
+    // Accuracy radius circle
+    var accuracyCircle = L.circle([initLat, initLng], {
+        color: initColor,
+        fillColor: initColor,
+        fillOpacity: 0.08,
+        weight: 1,
+        radius: 50,
+        className: 'leaflet-accuracy-circle'
+    }).addTo(map);
+
+    // --- DOM refs ---
+    var gpsDot        = document.getElementById("gpsDot");
+    var gpsStatus     = document.getElementById("gpsStatusText");
+    var gpsCoordsEl   = document.getElementById("gpsCoordsDisplay");
+    var gpsAccuracyEl = document.getElementById("gpsAccuracyDisplay");
+
+    var lastLat = initLat, lastLng = initLng;
+    var hasFirstFix = false;
+    var reverseCache = {};
+
+    // --- Reverse geocode with caching (round to 3dp to avoid hammering API) ---
+    function reverseGeocode(lat, lng, callback) {
+        var key = lat.toFixed(3) + "," + lng.toFixed(3);
+        if (reverseCache[key]) { callback(reverseCache[key]); return; }
+        var url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=" + lat + "&lon=" + lng;
+        fetch(url, { headers: { 'User-Agent': 'WildEyeRadarSystem/2.0' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var addr = data.address || {};
+                var hood = addr.suburb || addr.neighbourhood || addr.industrial || addr.quarter || "";
+                var city = addr.city || addr.town || addr.village || "Mysuru";
+                var label = hood ? hood + ", " + city : city;
+                reverseCache[key] = label;
+                callback(label);
+            })
+            .catch(function () { callback("Metagalli, Mysuru"); });
+    }
+
+    // --- Update marker position & popup ---
+    function updateMarker(lat, lng, color, accuracy, locationLabel) {
+        markerCircle.setLatLng([lat, lng]);
+        markerCircle.setStyle({ color: color, fillColor: color });
+
+        var accRadius = accuracy ? Math.max(accuracy, 15) : 50;
+        accuracyCircle.setLatLng([lat, lng]);
+        accuracyCircle.setRadius(accRadius);
+        accuracyCircle.setStyle({ color: color, fillColor: color });
+
+        var popupHtml =
+            '<div style="color:#111; font-family:Arial,sans-serif; padding:4px; min-width:180px; line-height:1.5;">' +
+            '<b style="font-size:12px; color:#cc0000; text-transform:uppercase;">🚨 Live Node Tracked</b><br/>' +
+            '<span style="font-weight:bold; font-size:13px; display:block; margin:4px 0;">📍 ' + locationLabel + '</span>' +
+            '<span style="font-size:11px; color:#555;">Lat: ' + lat.toFixed(6) + ' | Lng: ' + lng.toFixed(6) + '</span><br/>' +
+            (accuracy ? '<span style="font-size:11px; color:#777;">Accuracy: ±' + Math.round(accuracy) + 'm</span>' : '') +
+            '</div>';
+
+        markerCircle.bindPopup(popupHtml).openPopup();
+    }
+
+    // --- Status bar update ---
+    function setStatusBar(live, lat, lng, accuracy) {
+        if (live) {
+            gpsDot.className = "gps-dot live";
+            gpsStatus.textContent = "GPS Lock Active";
+            gpsStatus.style.color = "var(--green)";
+        } else {
+            gpsDot.className = "gps-dot searching";
+            gpsStatus.textContent = "Acquiring GPS signal...";
+            gpsStatus.style.color = "var(--text-dim)";
+        }
+        gpsCoordsEl.textContent = lat ? lat.toFixed(6) + ", " + lng.toFixed(6) : "";
+        gpsAccuracyEl.textContent = accuracy ? "±" + Math.round(accuracy) + "m" : "";
+    }
+
+    // --- STRATEGY 1: Browser geolocation watchPosition (fastest, most accurate) ---
+    if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+            function (pos) {
+                var lat = pos.coords.latitude;
+                var lng = pos.coords.longitude;
+                var acc = pos.coords.accuracy;
+
+                // Push to Flask session so /get-location is always fresh
+                fetch("/update-location", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ lat: lat, lng: lng, accuracy: acc })
+                });
+
+                lastLat = lat; lastLng = lng;
+                setStatusBar(true, lat, lng, acc);
+
+                if (!hasFirstFix) {
+                    map.setView([lat, lng], 17);
+                    hasFirstFix = true;
+                } else {
+                    map.panTo([lat, lng], { animate: true, duration: 0.8 });
+                }
+
+                reverseGeocode(lat, lng, function (label) {
+                    updateMarker(lat, lng, "#00ff88", acc, label);
+                });
+            },
+            function (err) {
+                // Geolocation denied or unavailable — fall back to server polling
+                console.warn("Geolocation error:", err.message);
+                setStatusBar(false, null, null, null);
+                startServerPolling();
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 1000,       // accept cached fix up to 1s old
+                timeout: 8000           // give device 8s to get first fix
+            }
+        );
+    } else {
+        startServerPolling();
+    }
+
+    // --- STRATEGY 2: Server-side polling fallback (every 2s via /get-location) ---
+    var pollingTimer = null;
+    var pollingStarted = false;
+
+    function startServerPolling() {
+        if (pollingStarted) return;
+        pollingStarted = true;
+        pollServer();
+        pollingTimer = setInterval(pollServer, 2000);
+    }
+
+    function pollServer() {
+        fetch("/get-location")
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.lat) return;
+                var lat = data.lat, lng = data.lng;
+                var color = data.color === "gray" ? "#00ff88" : data.color;
+                setStatusBar(data.source === "browser_gps", lat, lng, data.accuracy);
+                if (!hasFirstFix) {
+                    map.setView([lat, lng], 17);
+                    hasFirstFix = true;
+                } else {
+                    map.panTo([lat, lng], { animate: true, duration: 0.8 });
+                }
+                reverseGeocode(lat, lng, function (label) {
+                    updateMarker(lat, lng, color, data.accuracy, label);
+                });
+            })
+            .catch(function (e) { console.warn("Location poll failed:", e); });
+    }
+
+    // --- Initial popup on load ---
+    setTimeout(function () {
+        map.invalidateSize();
+        reverseGeocode(initLat, initLng, function (label) {
+            updateMarker(initLat, initLng, initColor, null, label);
+        });
+    }, 300);
+
+});
+{% endif %}
+</script>
+</body>
+</html>
