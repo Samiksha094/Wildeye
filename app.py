@@ -1,13 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, session, Response
+from flask import Flask, render_template, request, redirect, url_for, session, Response, jsonify
 from ultralytics import YOLO
 import os
 import cv2
+import numpy as np
 from datetime import datetime
+import geocoder
 
-# Import email alert function
 from send_alert_mail import send_alert_email
 
-# ---------------- APP SETUP ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(
@@ -18,110 +18,145 @@ app = Flask(
 
 app.secret_key = "wild_eye_secret"
 
-# ---------------- LOAD MODEL ----------------
 MODEL_PATH = os.path.join(BASE_DIR, "runs/detect/train4/weights/best.pt")
 model = YOLO(MODEL_PATH)
 
-# ---------------- CLASS MAPPING ----------------
-CLASS_NAMES = {
-    0: "Poacher",
-    1: "Weapon",
-    2: "Animal"
-}
-
-# ---------------- IN-MEMORY HISTORY ----------------
-DETECTION_HISTORY = []
+CLASS_NAMES = {0: "Poacher", 1: "Weapon", 2: "Animal"}
 
 
-# ---------------- DRAW BOXES FUNCTION ----------------
+# ---------------- FETCH REGIONAL FALLBACK GPS ----------------
+def get_current_gps():
+    try:
+        g = geocoder.ip('me')
+        if g.latlng:
+            return g.latlng[0], g.latlng[1]
+    except Exception as e:
+        print("Network location lookup dropped:", e)
+    return 12.3336, 76.6432
+
+
+# ---------------- CALIBRATED CONFIDENCE ----------------
+def get_calibrated_conf(cls, raw_conf):
+    if cls == 2:
+        return 72.0 + ((raw_conf - 0.35) / (1.0 - 0.35)) * (96.0 - 72.0)
+    elif cls == 0:
+        return 70.0 + ((raw_conf - 0.35) / (1.0 - 0.35)) * (95.0 - 70.0)
+    else:
+        return 70.0 + ((raw_conf - 0.35) / (1.0 - 0.35)) * (92.0 - 70.0)
+
+
+# ---------------- DRAW BOXES ----------------
 def draw_boxes(img, results):
     for box in results[0].boxes:
         conf = float(box.conf[0])
         cls = int(box.cls[0])
-
         if conf < 0.35:
             continue
-
-        # Calibration alignment rules
-        if cls == 2:
-            display_conf = 72.0 + ((conf - 0.35) / (1.0 - 0.35)) * (96.0 - 72.0)
-        elif cls == 0:
-            display_conf = 70.0 + ((conf - 0.35) / (1.0 - 0.35)) * (95.0 - 70.0)
-        else:
-            display_conf = 70.0 + ((conf - 0.35) / (1.0 - 0.35)) * (92.0 - 70.0)
-
+        display_conf = get_calibrated_conf(cls, conf)
         label = f"{CLASS_NAMES.get(cls, 'Target')} {display_conf:.1f}%"
         x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-
-        if cls == 0:
-            color = (0, 0, 255)  # Red
-        elif cls == 1:
-            color = (0, 165, 255)  # Orange
-        else:
-            color = (0, 255, 0)  # Green
-
+        color = (0, 0, 255) if cls == 0 else (0, 165, 255) if cls == 1 else (0, 255, 0)
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
         label_y = max(y1, h + 10)
         cv2.rectangle(img, (x1, label_y - h - 10), (x1 + w + 10, label_y), color, -1)
         cv2.putText(img, label, (x1 + 5, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
     return img
 
 
-# ---------------- LIVE WEBCAM STREAM GENERATOR ----------------
-def generate_webcam_stream():
-    # 0 launches the default integrated laptop webcam camera hardware
+# ---------------- NIGHT MODE WEBCAM STREAM ----------------
+def generate_webcam_stream(is_night_mode=False):
     camera = cv2.VideoCapture(0)
-
     while True:
         success, frame = camera.read()
         if not success:
             break
+
+        if is_night_mode:
+            # ── CRITICAL FIX ──────────────────────────────────────────────
+            # YOLO MUST run on the original color frame so it has full color
+            # cues (skin tone, clothing) to correctly distinguish Poacher vs
+            # Animal vs Weapon.  The thermal effect is applied ONLY to the
+            # display frame shown to the user — detection accuracy is unaffected.
+            # ─────────────────────────────────────────────────────────────
+
+            # Step 1: Run detection on the ORIGINAL color frame
+            results = model.predict(frame, conf=0.35, iou=0.20, imgsz=640, agnostic_nms=True, verbose=False)
+
+            # Step 2: Build the thermal display frame from the original
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Step 3: CLAHE — strong local contrast (thermal silhouette effect)
+            clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+
+            # Step 4: Gamma LUT — crushes shadows, blows out bright regions (white-hot look)
+            lut = np.array([
+                np.clip(int(255 * ((i / 255.0) ** 0.45)), 0, 255)
+                for i in range(256)
+            ], dtype=np.uint8)
+            thermal = cv2.LUT(enhanced, lut)
+
+            # Step 5: Smooth noise then sharpen edges for clean silhouettes
+            blurred = cv2.GaussianBlur(thermal, (3, 3), 0)
+            sharpened = cv2.addWeighted(thermal, 1.8, blurred, -0.8, 0)
+
+            # Step 6: Convert thermal display frame back to BGR for box drawing
+            display_frame = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+
+            # Step 7: Draw detection boxes (from color-frame results) onto thermal display
+            annotated_frame = draw_boxes(display_frame, results)
+
         else:
-            # Run local real-time inference on the current webcam frame matrix
-            results = model.predict(
-                frame, conf=0.35, iou=0.20, imgsz=640, agnostic_nms=True, verbose=False
-            )
-
-            # Draw tracking bounding labels onto the frame canvas matrix
+            results = model.predict(frame, conf=0.35, iou=0.20, imgsz=640, agnostic_nms=True, verbose=False)
             annotated_frame = draw_boxes(frame.copy(), results)
-
-            # Encode processed frame canvas into memory buffer distribution chunks
-            ret, buffer = cv2.imencode('.jpg', annotated_frame)
-            frame_bytes = buffer.tobytes()
-
-            # Yield frame chunks sequentially using multipart response packaging standards
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
+        ret, buffer = cv2.imencode('.jpg', annotated_frame)
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
     camera.release()
 
 
-# ---------------- BASE NAVIGATION ROUTES ----------------
+# ---------------- AUTH ROUTES ----------------
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         if request.form["username"] == "sam" and request.form["password"] == "1234":
             session["logged_in"] = True
+            if "history_log" not in session:
+                session["history_log"] = []
             return redirect(url_for("home"))
-        return render_template("login.html", error="Invalid username or password")
+        return render_template("login.html", error="Invalid credentials.")
     return render_template("login.html")
 
 
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ---------------- MAIN ROUTES ----------------
 @app.route("/home")
 def home():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    return render_template("index.html")
+    return render_template("index.html",
+                           output_image=session.get("last_image"),
+                           poacher=session.get("last_poacher", 0.0),
+                           weapon=session.get("last_weapon", 0.0),
+                           animal=session.get("last_animal", 0.0),
+                           mail_sent=session.get("last_mail", "No"),
+                           threat_level=session.get("last_threat"),
+                           threat_color=session.get("last_color"))
 
 
-# ---------------- LIVE VIDEO ROUTING LINKS ----------------
 @app.route("/live-feed")
 def live_feed():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    return Response(generate_webcam_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    lens_mode = request.args.get('mode', 'normal')
+    is_night = (lens_mode == 'night')
+    return Response(generate_webcam_stream(is_night_mode=is_night),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route("/live-camera")
@@ -131,142 +166,150 @@ def live_camera():
     return render_template("index.html", view_tab="live_camera")
 
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-# ---------------- PREDICT / ANALYSIS FILE ENGINE ----------------
 @app.route("/predict", methods=["POST"])
 def predict():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
 
-    if "file" not in request.files:
+    file = request.files.get("file")
+    if not file or file.filename == "":
         return redirect(url_for("home"))
 
-    file = request.files["file"]
-    if file.filename == "":
-        return redirect(url_for("home"))
-
-    os.makedirs(app.static_folder, exist_ok=True)
     input_path = os.path.join(app.static_folder, "input.jpg")
     output_path = os.path.join(app.static_folder, "output.jpg")
     file.save(input_path)
-
     img = cv2.imread(input_path)
-    if img is None:
-        return render_template("index.html", error="Unable to read uploaded image.")
 
     results = model.predict(img, conf=0.35, iou=0.20, imgsz=640, agnostic_nms=True, verbose=False)
-    annotated = draw_boxes(img.copy(), results)
-    cv2.imwrite(output_path, annotated)
+    cv2.imwrite(output_path, draw_boxes(img.copy(), results))
 
-    stats = {"poacher": 0.0, "weapon": 0.0, "animal": 0.0}
-    found_poacher = found_weapon = found_animal = False
-
+    stats = {"p": 0.0, "w": 0.0, "a": 0.0}
+    fp = fw = fa = False
     for box in results[0].boxes:
-        conf = float(box.conf[0])
-        if conf < 0.35:
+        c, cl = float(box.conf[0]), int(box.cls[0])
+        if c < 0.35:
             continue
+        val = get_calibrated_conf(cl, c)
+        if cl == 0: stats["p"], fp = max(stats["p"], val), True
+        elif cl == 1: stats["w"], fw = max(stats["w"], val), True
+        elif cl == 2: stats["a"], fa = max(stats["a"], val), True
 
-        cls = int(box.cls[0])
-        conf_percent = 72.0 + ((conf - 0.35) / (1.0 - 0.35)) * (96.0 - 72.0)
-
-        if cls == 0:
-            stats["poacher"] = max(stats["poacher"], conf_percent)
-            found_poacher = True
-        elif cls == 1:
-            stats["weapon"] = max(stats["weapon"], conf_percent)
-            found_weapon = True
-        elif cls == 2:
-            stats["animal"] = max(stats["animal"], conf_percent)
-            found_animal = True
-
-    detection_found = found_poacher or found_weapon or found_animal
-    mail_sent = "No"
-
-    if detection_found:
+    m_sent = "No"
+    if fp or fw or fa:
         try:
-            send_alert_email(
-                image_path=output_path,
-                poacher_detected=found_poacher,
-                weapon_detected=found_weapon,
-                animal_detected=found_animal
-            )
-            mail_sent = "Yes"
-        except Exception as e:
-            print("Email error:", e)
-            mail_sent = "No"
+            send_alert_email(output_path, fp, fw, fa)
+            m_sent = "Yes"
+        except:
+            m_sent = "No"
 
-    if found_poacher and found_weapon:
-        threat_level, threat_color = "HIGH", "red"
-    elif found_poacher:
-        threat_level, threat_color = "MEDIUM", "orange"
-    elif found_animal:
-        threat_level, threat_color = "LOW", "green"
-    else:
-        threat_level, threat_color = "NONE", "gray"
+    t_lvl, t_clr = (
+        ("HIGH", "red") if fp and fw else
+        ("MEDIUM", "orange") if fp else
+        ("LOW", "green") if fa else
+        ("NONE", "gray")
+    )
+    lat, lng = get_current_gps()
 
-    DETECTION_HISTORY.append({
-        "time": datetime.now().strftime("%H:%M:%S"),
-        "poacher": round(stats["poacher"], 1),
-        "weapon": round(stats["weapon"], 1),
-        "animal": round(stats["animal"], 1),
-        "threat": threat_level,
-        "color": threat_color,
-        "mail": mail_sent
+    session.update({
+        "last_image": "output.jpg",
+        "last_poacher": round(stats["p"], 1),
+        "last_weapon": round(stats["w"], 1),
+        "last_animal": round(stats["a"], 1),
+        "last_mail": m_sent,
+        "last_threat": t_lvl,
+        "last_color": t_clr,
+        "last_lat": lat,
+        "last_lng": lng
     })
 
-    if len(DETECTION_HISTORY) > 15:
-        DETECTION_HISTORY.pop(0)
+    logs = session.get("history_log", [])
+    logs.append({
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "poacher": round(stats["p"], 1),
+        "weapon": round(stats["w"], 1),
+        "animal": round(stats["a"], 1),
+        "threat": t_lvl,
+        "color": t_clr,
+        "mail": m_sent,
+        "lat": lat,
+        "lng": lng
+    })
+    if len(logs) > 15:
+        logs.pop(0)
+    session["history_log"] = logs
 
-    return render_template(
-        "index.html",
-        output_image="output.jpg",
-        poacher=round(stats["poacher"], 1),
-        weapon=round(stats["weapon"], 1),
-        animal=round(stats["animal"], 1),
-        mail_sent=mail_sent,
-        alert=detection_found,
-        threat_level=threat_level,
-        threat_color=threat_color
-    )
+    return redirect(url_for("home"))
 
 
-# ---------------- SIDEBAR ENDPOINTS ----------------
 @app.route("/history")
 def history():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    return render_template("index.html", view_tab="history", history=DETECTION_HISTORY)
+    return render_template("index.html", view_tab="history", history=session.get("history_log", []))
 
 
+# ---------------- LIVE GPS ENDPOINTS (FAST BROWSER-BASED) ----------------
+@app.route("/update-location", methods=["POST"])
+def update_location():
+    """Receives high-accuracy GPS coordinates pushed from the browser every 2s."""
+    if not session.get("logged_in"):
+        return jsonify({"status": "unauthorized"}), 401
+    data = request.get_json()
+    if data and "lat" in data and "lng" in data:
+        session["last_lat"] = data["lat"]
+        session["last_lng"] = data["lng"]
+        session["location_accuracy"] = data.get("accuracy", None)
+        session["location_source"] = "browser_gps"
+        return jsonify({"status": "ok", "lat": data["lat"], "lng": data["lng"]})
+    return jsonify({"status": "error"}), 400
+
+
+@app.route("/get-location")
+def get_location():
+    """Polled by map every 2 seconds to get latest GPS + threat state."""
+    if not session.get("logged_in"):
+        return jsonify({"status": "unauthorized"}), 401
+    lat = session.get("last_lat")
+    lng = session.get("last_lng")
+    if lat is None:
+        lat, lng = get_current_gps()
+    return jsonify({
+        "lat": lat,
+        "lng": lng,
+        "source": session.get("location_source", "ip"),
+        "accuracy": session.get("location_accuracy", None),
+        "threat": session.get("last_threat", "NONE"),
+        "color": session.get("last_color", "gray")
+    })
+
+
+# ---------------- MAP & REPORTS ----------------
 @app.route("/threat-map")
 def threat_map():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-
-    latest_level = DETECTION_HISTORY[-1]["threat"] if DETECTION_HISTORY else "NONE"
-    latest_color = DETECTION_HISTORY[-1]["color"] if DETECTION_HISTORY else "gray"
-
-    return render_template("index.html", view_tab="map", threat_level=latest_level, threat_color=latest_color)
+    lat, lng = session.get("last_lat"), session.get("last_lng")
+    if lat is None:
+        lat, lng = get_current_gps()
+    return render_template("index.html", view_tab="map",
+                           threat_level=session.get("last_threat", "NONE"),
+                           threat_color=session.get("last_color", "gray"),
+                           lat=lat, lng=lng)
 
 
 @app.route("/reports")
 def reports():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-
-    report_summary = {
+    logs = session.get("history_log", [])
+    summary = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "total_scans": len(DETECTION_HISTORY),
-        "critical_threats": sum(1 for log in DETECTION_HISTORY if log["threat"] in ["HIGH", "MEDIUM"]),
-        "animals_monitored": sum(1 for log in DETECTION_HISTORY if log["animal"] > 0),
-        "alerts_dispatched": sum(1 for log in DETECTION_HISTORY if log["mail"] == "Yes")
+        "total_scans": len(logs),
+        "critical_threats": sum(1 for log in logs if log["threat"] in ["HIGH", "MEDIUM"]),
+        "animals_monitored": sum(1 for log in logs if log["animal"] > 0),
+        "alerts_dispatched": sum(1 for log in logs if log["mail"] == "Yes")
     }
-    return render_template("index.html", view_tab="reports", history=DETECTION_HISTORY, summary=report_summary)
+    return render_template("index.html", view_tab="reports", history=logs, summary=summary)
 
 
 if __name__ == "__main__":
