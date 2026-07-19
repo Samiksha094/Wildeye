@@ -96,12 +96,14 @@
     .conf-val.red   { color:var(--red); }
     .conf-val.amber { color:var(--amber); }
     .conf-val.green { color:var(--green); }
+    .conf-val.blue  { color:var(--blue); }
     .conf-val.none  { color:var(--text-faint); }
 
     .threat-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; letter-spacing:1px; font-family:'Orbitron',monospace; }
     .threat-chip.HIGH   { background:rgba(255,59,59,0.12); border:1px solid rgba(255,59,59,0.25); color:var(--red); }
     .threat-chip.MEDIUM { background:rgba(255,170,0,0.1); border:1px solid rgba(255,170,0,0.25); color:var(--amber); }
     .threat-chip.LOW    { background:rgba(0,255,136,0.08); border:1px solid rgba(0,255,136,0.2); color:var(--green); }
+    .threat-chip.BIRD   { background:rgba(68,136,255,0.1); border:1px solid rgba(68,136,255,0.25); color:var(--blue); }
     .threat-chip.NONE   { background:rgba(255,255,255,0.04); border:1px solid var(--border); color:var(--text-faint); }
 
     .mail-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:6px; font-size:11px; }
@@ -206,6 +208,7 @@
               <th>Poacher %</th>
               <th>Weapon %</th>
               <th>Animal %</th>
+              <th>Bird %</th>
               <th>Threat</th>
               <th>Alert</th>
             </tr>
@@ -215,13 +218,15 @@
             {% set is_high = item.poacher > 60 and item.weapon > 0 %}
             {% set is_med = item.poacher > 30 %}
             {% set is_low = item.animal > 0 %}
-            {% set level = 'HIGH' if is_high else ('MEDIUM' if is_med else ('LOW' if is_low else 'NONE')) %}
+            {% set is_bird = item.bird > 0 %}
+            {% set level = 'HIGH' if is_high else ('MEDIUM' if is_med else ('LOW' if is_low else ('BIRD' if is_bird else 'NONE'))) %}
             <tr>
               <td style="color:var(--text-faint);font-size:12px">{{ loop.index }}</td>
               <td class="td-time">{{ item.time }}</td>
               <td><span class="conf-val {% if item.poacher > 30 %}red{% elif item.poacher > 0 %}amber{% else %}none{% endif %}">{{ item.poacher }}%</span></td>
               <td><span class="conf-val {% if item.weapon > 30 %}red{% elif item.weapon > 0 %}amber{% else %}none{% endif %}">{{ item.weapon }}%</span></td>
               <td><span class="conf-val {% if item.animal > 30 %}green{% elif item.animal > 0 %}amber{% else %}none{% endif %}">{{ item.animal }}%</span></td>
+              <td><span class="conf-val {% if item.bird > 0 %}blue{% else %}none{% endif %}">{{ item.bird }}%</span></td>
               <td><span class="threat-chip {{ level }}">{{ level }}</span></td>
               <td><span class="mail-chip {% if item.mail == 'Yes' %}yes{% else %}no{% endif %}">
                 {% if item.mail == 'Yes' %}✓ Sent{% else %}— None{% endif %}
