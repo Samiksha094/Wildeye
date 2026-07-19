@@ -35,6 +35,13 @@ CLASS_NAMES = {0: "Poacher", 1: "Weapon", 2: "Animal", 3: "Bird"}
 
 # ---------------- FETCH REGIONAL FALLBACK GPS ----------------
 def get_current_gps():
+    """
+    IP-based geolocation. This is only an approximation (tied to your ISP's
+    registered location, not your device's actual position), and if the
+    lookup fails entirely it falls back to the hardcoded coordinates below.
+    This should ONLY be used when we have no real browser GPS yet — see the
+    session-first logic in /predict and /get-location.
+    """
     try:
         g = geocoder.ip('me')
         if g.latlng:
@@ -177,6 +184,7 @@ def home():
                            poacher=session.get("last_poacher", 0.0),
                            weapon=session.get("last_weapon", 0.0),
                            animal=session.get("last_animal", 0.0),
+                           bird=session.get("last_bird", 0.0),
                            mail_sent=session.get("last_mail", "No"),
                            threat_level=session.get("last_threat"),
                            threat_color=session.get("last_color"))
@@ -217,8 +225,8 @@ def predict():
     bird_results = bird_model.predict(img, conf=BIRD_CONF, iou=0.20, imgsz=640, classes=[BIRD_COCO_CLASS], verbose=False)
     cv2.imwrite(output_path, draw_boxes(img.copy(), results, bird_results))
 
-    stats = {"p": 0.0, "w": 0.0, "a": 0.0}
-    fp = fw = fa = False
+    stats = {"p": 0.0, "w": 0.0, "a": 0.0, "b": 0.0}
+    fp = fw = fa = fb = False
     for box in results[0].boxes:
         c, cl = float(box.conf[0]), int(box.cls[0])
         if c < 0.35:
@@ -229,17 +237,37 @@ def predict():
         elif cl == 2: stats["a"], fa = max(stats["a"], val), True
 
     # Check birds from COCO model
+    # Birds get their own flag/stat (fb) instead of being folded into the
+    # Animal flag, since no bird photos exist in the custom training set —
+    # this is the only signal we have that a bird was seen.
     for box in bird_results[0].boxes:
         c, cl = float(box.conf[0]), int(box.cls[0])
         if cl == BIRD_COCO_CLASS and c >= BIRD_CONF:
-            fa = True  # Birds counted as wildlife (Animal flag) for alert logic
+            fb = True
             val = get_calibrated_conf(3, c)
-            stats["a"] = max(stats["a"], val)
+            stats["b"] = max(stats["b"], val)
+
+    # ── REAL-TIME GPS FIX ──────────────────────────────────────────────────
+    # Use the live browser GPS already pushed into the session by
+    # /update-location (sent from the user's device every 2s). Only fall
+    # back to the rough IP-based lookup if we genuinely have no real fix
+    # yet. Previously this unconditionally called get_current_gps(), which
+    # overwrote accurate live coordinates with an inaccurate IP guess on
+    # every single detection.
+    lat = session.get("last_lat")
+    lng = session.get("last_lng")
+    if lat is None or lng is None:
+        lat, lng = get_current_gps()
+    # ─────────────────────────────────────────────────────────────────────
 
     m_sent = "No"
-    if fp or fw or fa:
+    if fp or fw or fa or fb:
         try:
-            send_alert_email(output_path, fp, fw, fa)
+            # send_alert_email receives lat, lng so the email reports the
+            # real-time location instead of doing its own (inaccurate)
+            # lookup internally, plus the bird flag so bird-only sightings
+            # also trigger a mail.
+            send_alert_email(output_path, fp, fw, fa, fb, lat, lng)
             m_sent = "Yes"
         except:
             m_sent = "No"
@@ -248,15 +276,16 @@ def predict():
         ("HIGH", "red") if fp and fw else
         ("MEDIUM", "orange") if fp else
         ("LOW", "green") if fa else
+        ("BIRD", "blue") if fb else
         ("NONE", "gray")
     )
-    lat, lng = get_current_gps()
 
     session.update({
         "last_image": "output.jpg",
         "last_poacher": round(stats["p"], 1),
         "last_weapon": round(stats["w"], 1),
         "last_animal": round(stats["a"], 1),
+        "last_bird": round(stats["b"], 1),
         "last_mail": m_sent,
         "last_threat": t_lvl,
         "last_color": t_clr,
@@ -270,6 +299,7 @@ def predict():
         "poacher": round(stats["p"], 1),
         "weapon": round(stats["w"], 1),
         "animal": round(stats["a"], 1),
+        "bird": round(stats["b"], 1),
         "threat": t_lvl,
         "color": t_clr,
         "mail": m_sent,
