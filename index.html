@@ -183,7 +183,7 @@ input[type="file"] { padding: 10px; border-radius: 8px; background: rgba(255,255
                 <thead>
                     <tr>
                         <th>Timestamp</th><th>Threat Status Level</th>
-                        <th>Poacher %</th><th>Weapon %</th><th>Animal %</th><th>Alerts</th>
+                        <th>Poacher %</th><th>Weapon %</th><th>Animal %</th><th>Bird %</th><th>Alerts</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -194,11 +194,12 @@ input[type="file"] { padding: 10px; border-radius: 8px; background: rgba(255,255
                         <td style="color:var(--red);">{{row.poacher}}%</td>
                         <td style="color:var(--orange);">{{row.weapon}}%</td>
                         <td>{{row.animal}}%</td>
+                        <td style="color:#4488ff;">{{row.bird}}%</td>
                         <td style="color:#00b3ff;">{{row.mail}}</td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" style="text-align:center; color:var(--text-dim); padding:30px 0;">
+                        <td colspan="7" style="text-align:center; color:var(--text-dim); padding:30px 0;">
                             No diagnostic logs found inside this running monitoring session.
                         </td>
                     </tr>
@@ -325,6 +326,40 @@ function switchCameraLens() {
 }
 
 // ============================================================
+//  BACKGROUND GPS CAPTURE — runs on EVERY page, not just Threat Map
+//  This ensures session["last_lat"]/["last_lng"] hold your real browser
+//  GPS position as early as possible, so /predict never has to fall
+//  back to the much less accurate IP-based location lookup just
+//  because you uploaded a scan before visiting the Threat Map page.
+// ============================================================
+{% if view_tab != 'map' %}
+(function () {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.watchPosition(
+        function (pos) {
+            fetch("/update-location", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy
+                })
+            }).catch(function () {});
+        },
+        function (err) {
+            console.warn("Background GPS capture unavailable:", err.message);
+        },
+        {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 8000
+        }
+    );
+})();
+{% endif %}
+
+// ============================================================
 //  THREAT MAP — FAST LIVE GPS ENGINE
 // ============================================================
 {% if view_tab == 'map' %}
@@ -373,22 +408,74 @@ document.addEventListener("DOMContentLoaded", function () {
     var hasFirstFix = false;
     var reverseCache = {};
 
-    // --- Reverse geocode with caching (round to 3dp to avoid hammering API) ---
+    // --- Reverse-geocode throttle state ---
+    // Nominatim's public API only allows ~1 request/second. watchPosition()
+    // can fire several times a second, so without throttling we'd get
+    // rate-limited almost immediately and fall into the error path on every
+    // single update. We only fire a new lookup if enough time has passed OR
+    // the position moved meaningfully — otherwise we reuse the last label.
+    var lastGeocodeAt = 0;
+    var lastGeocodeLat = null, lastGeocodeLng = null;
+    var lastKnownLabel = "Locating address...";
+
+    function haversineMeters(lat1, lng1, lat2, lng2) {
+        var R = 6371000;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLng = (lng2 - lng1) * Math.PI / 180;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    // --- Reverse geocode with caching + throttling ---
+    // NOTE: no more hardcoded "Mysuru" fallback. If the lookup fails or has
+    // no usable address, we reuse the last known real label (or a neutral
+    // placeholder on first load) instead of guessing a city name.
     function reverseGeocode(lat, lng, callback) {
-        var key = lat.toFixed(3) + "," + lng.toFixed(3);
-        if (reverseCache[key]) { callback(reverseCache[key]); return; }
-        var url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=" + lat + "&lon=" + lng;
-        fetch(url, { headers: { 'User-Agent': 'WildEyeRadarSystem/2.0' } })
-            .then(function (r) { return r.json(); })
+        var key = lat.toFixed(2) + "," + lng.toFixed(2); // ~1.1km bucket
+        if (reverseCache[key]) {
+            lastKnownLabel = reverseCache[key];
+            callback(reverseCache[key]);
+            return;
+        }
+
+        var now = Date.now();
+        var movedFar = (lastGeocodeLat === null) ||
+            (haversineMeters(lat, lng, lastGeocodeLat, lastGeocodeLng) > 80);
+        var enoughTimePassed = (now - lastGeocodeAt) > 3000;
+
+        if (!movedFar && !enoughTimePassed) {
+            callback(lastKnownLabel);
+            return;
+        }
+
+        lastGeocodeAt = now;
+        lastGeocodeLat = lat;
+        lastGeocodeLng = lng;
+
+        var url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=" + lat + "&lon=" + lng + "&zoom=14&addressdetails=1";
+        fetch(url, { headers: { 'Accept-Language': 'en' } })
+            .then(function (r) {
+                if (!r.ok) throw new Error("Nominatim HTTP " + r.status);
+                return r.json();
+            })
             .then(function (data) {
                 var addr = data.address || {};
                 var hood = addr.suburb || addr.neighbourhood || addr.industrial || addr.quarter || "";
-                var city = addr.city || addr.town || addr.village || "Mysuru";
-                var label = hood ? hood + ", " + city : city;
+                var city = addr.city || addr.town || addr.village || addr.county || addr.state_district || addr.state || "";
+                var label = city
+                    ? (hood ? hood + ", " + city : city)
+                    : (data.display_name ? data.display_name.split(",").slice(0, 2).join(",") : "Location name unavailable");
                 reverseCache[key] = label;
+                lastKnownLabel = label;
                 callback(label);
             })
-            .catch(function () { callback("Metagalli, Mysuru"); });
+            .catch(function (err) {
+                console.warn("Reverse geocode failed:", err.message);
+                callback(lastKnownLabel);
+            });
     }
 
     // --- Update marker position & popup ---
